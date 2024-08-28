@@ -1,1 +1,65 @@
+#!/bin/bash
 
+# Check if the script is being run as root
+if [ "$(id -u)" != "0" ]; then
+   echo "This script must be run as root."
+   exit 1
+fi
+
+echo "Starting Linux security hardening..."
+
+# Update the system
+echo "Updating the system..."
+apt update && apt upgrade -y
+
+# Enable the firewall (UFW)
+echo "Enabling UFW firewall..."
+apt install -y ufw
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow ssh
+ufw enable
+
+# Disable root login over SSH
+echo "Disabling root login over SSH..."
+sed -i 's/PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+systemctl reload sshd
+
+# Enforce password complexity
+echo "Enforcing password complexity..."
+apt install -y libpam-pwquality
+sed -i 's/# minlen = 8/minlen = 12/' /etc/security/pwquality.conf
+sed -i 's/# minclass = 0/minclass = 4/' /etc/security/pwquality.conf
+
+# Install and configure Fail2Ban
+echo "Installing and configuring Fail2Ban..."
+apt install -y fail2ban
+systemctl enable fail2ban
+systemctl start fail2ban
+
+# Set up automatic security updates
+echo "Setting up automatic security updates..."
+apt install -y unattended-upgrades
+dpkg-reconfigure -plow unattended-upgrades
+
+# Restrict permissions on sensitive files
+echo "Restricting permissions on sensitive files..."
+chmod 600 /etc/ssh/sshd_config
+chmod 600 /boot/grub/grub.cfg
+
+# Remove unnecessary packages
+echo "Removing unnecessary packages..."
+apt autoremove -y
+
+# Disable unused services
+echo "Disabling unused services..."
+systemctl disable cups-browsed.service
+
+# Audit security logs
+echo "Setting up log auditing with auditd..."
+apt install -y auditd
+systemctl enable auditd
+systemctl start auditd
+
+# End of the script
+echo "Security hardening complete. Please review the system's settings for additional security measures."
