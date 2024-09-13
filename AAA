@@ -14,7 +14,7 @@ echo find files
 
 find / -iname "*.mp3" -print
 find /users -iname "*.jpeg" -print
-find / -iname "*.png" -print
+find /users -iname "*.png" -print
 
 echo services
 
