@@ -1,5 +1,6 @@
 echo AAA info giver
 
+echo wip
 echo find files
 
 find / -iname "*.mp3" -print
@@ -8,4 +9,7 @@ find / -iname "*.png" -print
 
 echo services
 
+systemctl list-units --type=service --state=active
+
 echo users/groups
+compgen -u
