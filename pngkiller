@@ -9,6 +9,6 @@ fi
 echo "Searching for .jpg, .mp3, and .png files across the entire system..."
 
 # Find and delete .jpg, .mp3, and .png files across the entire file system
-find / -type f \( -name "*.jpg" -o -name "*.mp3" -o -name "*.png" \) -exec rm -v {} \; 2>/dev/null
+find /users -type f \( -name "*.jpg" -o -name "*.mp3" -o -name "*.png" \) -exec rm -v {} \; 2>/dev/null
 
 echo "Deletion complete."
