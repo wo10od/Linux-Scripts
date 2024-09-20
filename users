@@ -1,0 +1,52 @@
+#!/bin/bash
+
+# Function to prompt for user action
+manage_user() {
+    local username=$1
+    echo "Managing user: $username"
+    echo "Choose an option for user '$username':"
+    echo "1) Remove"
+    echo "2) Add to sudo group"
+    echo "3) Set password to change on next login"
+    echo "4) Skip"
+    read -p "Enter your choice (1-4): " choice
+
+    case $choice in
+        1)
+            read -p "Are you sure you want to remove user '$username'? (y/n): " confirm
+            if [ "$confirm" == "y" ]; then
+                sudo deluser --remove-home "$username"
+                echo "User '$username' removed."
+            else
+                echo "User '$username' not removed."
+            fi
+            ;;
+        2)
+            sudo usermod -aG sudo "$username"
+            echo "User '$username' added to sudo group."
+            ;;
+        3)
+            sudo chage -d 0 "$username"
+            echo "User '$username' will need to change their password at next login."
+            ;;
+        4)
+            echo "Skipping user '$username'."
+            ;;
+        *)
+            echo "Invalid option. Skipping user '$username'."
+            ;;
+    esac
+    echo "----------------------------------------"
+}
+
+# Get the list of users from /etc/passwd
+echo "Starting user management script..."
+while IFS=: read -r username _; do
+    # Exclude system users by checking if their UID is >= 1000
+    uid=$(id -u "$username" 2>/dev/null)
+    if [ "$uid" -ge 1000 ]; then
+        manage_user "$username"
+    fi
+done < /etc/passwd
+
+echo "User management complete."
