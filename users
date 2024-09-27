@@ -1,53 +1,52 @@
 #!/bin/bash
 
-# Function to handle user choices
-manage_user() {
-    local username=$1
-    echo "Managing user: $username"
+# Get a list of all system users
+users=$(cut -d: -f1 /etc/passwd)
 
-    PS3="Choose an option for user '$username': "
-    options=("Remove User" "Add to Sudo" "Force Password Reset" "Skip")
-    select opt in "${options[@]}"; do
-        case $REPLY in
-            1)
-                read -p "Are you sure you want to remove user '$username'? (y/n): " confirm
-                if [[ "$confirm" == "y" ]]; then
-                    sudo deluser --remove-home "$username"
-                    echo "User '$username' removed from the system."
-                else
-                    echo "Aborted removal of '$username'."
-                fi
-                break
-                ;;
-            2)
-                sudo usermod -aG sudo "$username"
-                echo "User '$username' added to sudo group."
-                break
-                ;;
-            3)
-                sudo chage -d 0 "$username"
-                echo "Password for user '$username' will need to be changed at next login."
-                break
-                ;;
-            4)
-                echo "Skipping user '$username'."
-                break
-                ;;
-            *)
-                echo "Invalid option. Please choose between 1-4."
-                ;;
-        esac
-    done
-    echo "----------------------------------------"
+# Function to manage individual users
+manage_user() {
+    user=$1
+    echo -e "\nManaging user: $user"
+    echo "What would you like to do with '$user'?"
+    echo "1) Delete the user"
+    echo "2) Give the user sudo privileges"
+    echo "3) Revoke sudo privileges"
+    echo "4) Force password change at next login"
+    echo "5) Skip this user"
+    read -p "Choose an option (1-5): " option
+
+    case $option in
+        1)
+            sudo deluser --remove-home $user
+            echo "User '$user' deleted."
+            ;;
+        2)
+            sudo usermod -aG sudo $user
+            echo "User '$user' added to sudo group."
+            ;;
+        3)
+            sudo deluser $user sudo
+            echo "User '$user' removed from sudo group."
+            ;;
+        4)
+            sudo passwd -e $user
+            echo "Password for user '$user' will be changed at next login."
+            ;;
+        5)
+            echo "Skipping user '$user'."
+            ;;
+        *)
+            echo "Invalid option. Skipping user '$user'."
+            ;;
+    esac
 }
 
-# Fetch all non-system users (UID >= 1000)
-echo "Starting user management..."
-while IFS=: read -r username _; do
-    uid=$(id -u "$username" 2>/dev/null)
-    if [[ "$uid" -ge 1000 ]]; then
-        manage_user "$username"
+# Loop through all users and manage them
+for user in $users; do
+    # Skip system users
+    if [ "$user" != "root" ] && id -u "$user" >/dev/null 2>&1 && [ "$(grep ^$user: /etc/passwd | cut -d: -f7)" != "/usr/sbin/nologin" ]; then
+        manage_user $user
     fi
-done < /etc/passwd
+done
 
-echo "User management complete."
+echo -e "\nUser management completed."
