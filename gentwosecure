@@ -73,14 +73,6 @@ sed -i 's/#MaxAuthTries 6/MaxAuthTries 3/' /etc/ssh/sshd_config
 echo "AllowGroups sshusers" >> /etc/ssh/sshd_config
 systemctl reload sshd
 
-# Enforce strong password policies
-echo "Enforcing strong password policies..."
-install_package libpam-pwquality
-sed -i 's/# minlen = 8/minlen = 14/' /etc/security/pwquality.conf
-sed -i 's/# minclass = 0/minclass = 4/' /etc/security/pwquality.conf
-sed -i 's/# retry = 3/retry = 3/' /etc/security/pwquality.conf
-echo "auth required pam_tally2.so deny=5 onerr=fail unlock_time=900" >> /etc/pam.d/common-auth
-
 # Install and configure Fail2Ban for SSH protection
 echo "Installing and configuring Fail2Ban for SSH protection..."
 install_package fail2ban
@@ -198,10 +190,6 @@ echo "Restricting cron jobs to authorized users only..."
 echo "root" > /etc/cron.allow
 chmod 600 /etc/cron.allow
 chmod 600 /etc/at.allow
-
-# Prompt to set a new password for the current user
-echo "Setting password for the current user ($USER)..."
-passwd $USER
 
 # End of the script
 echo "Ultimate security hardening complete. Please review the system's settings for additional security measures."
