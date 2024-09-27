@@ -3,10 +3,20 @@
 # Get a list of all system users
 users=$(cut -d: -f1 /etc/passwd)
 
+# Function to check if a user is an admin (in the sudo group)
+is_admin() {
+    if groups "$1" | grep -qw "sudo"; then
+        echo "Admin"
+    else
+        echo "Non-admin"
+    fi
+}
+
 # Function to manage individual users
 manage_user() {
     user=$1
-    echo -e "\nManaging user: $user"
+    status=$(is_admin "$user")
+    echo -e "\nManaging user: $user ($status)"
     echo "What would you like to do with '$user'?"
     echo "1) Delete the user"
     echo "2) Give the user sudo privileges"
@@ -43,7 +53,7 @@ manage_user() {
 
 # Loop through all users and manage them
 for user in $users; do
-    # Skip system users
+    # Skip system users and no-login users
     if [ "$user" != "root" ] && id -u "$user" >/dev/null 2>&1 && [ "$(grep ^$user: /etc/passwd | cut -d: -f7)" != "/usr/sbin/nologin" ]; then
         manage_user $user
     fi
