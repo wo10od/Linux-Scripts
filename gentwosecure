@@ -199,5 +199,9 @@ echo "root" > /etc/cron.allow
 chmod 600 /etc/cron.allow
 chmod 600 /etc/at.allow
 
+# Prompt to set a new password for the current user
+echo "Setting password for the current user ($USER)..."
+passwd $USER
+
 # End of the script
 echo "Ultimate security hardening complete. Please review the system's settings for additional security measures."
