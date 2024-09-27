@@ -8,6 +8,9 @@ fi
 
 echo "Starting ultimate Linux security hardening..."
 
+# Set DEBIAN_FRONTEND to noninteractive
+export DEBIAN_FRONTEND=noninteractive
+
 # Function to check and install packages
 install_package() {
     if ! dpkg -l | grep -q "^ii\s\+$1"; then
