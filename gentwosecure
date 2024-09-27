@@ -88,11 +88,7 @@ EOL
 systemctl enable fail2ban
 systemctl start fail2ban
 
-# Configure automatic security updates
-echo "Configuring automatic security updates..."
-install_package unattended-upgrades
-dpkg-reconfigure -plow unattended-upgrades
-sed -i 's,//Unattended-Upgrade::Mail "root";,Unattended-Upgrade::Mail "root";,g' /etc/apt/apt.conf.d/50unattended-upgrades
+
 
 # Restrict permissions on sensitive files
 echo "Restricting permissions on sensitive files..."
