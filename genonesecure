@@ -55,34 +55,6 @@ apt autoremove -y
 echo "Disabling unused services..."
 systemctl disable cups-browsed.service
 
-# Get the current user
-CURRENT_USER=$(whoami)
-
-# Set password policy parameters
-MIN_LEN=12
-MIN_CLASS=4
-
-echo "Enforcing password policies for all users except '$CURRENT_USER'..."
-
-# Update /etc/security/pwquality.conf to enforce password complexity
-if [[ -f /etc/security/pwquality.conf ]]; then
-    sed -i "s/# minlen = 8/minlen = $MIN_LEN/" /etc/security/pwquality.conf
-    sed -i "s/# minclass = 0/minclass = $MIN_CLASS/" /etc/security/pwquality.conf
-else
-    echo "Password quality configuration file not found."
-    exit 1
-fi
-
-# Enforce password policies for each user except the current user
-for user in $(cut -f1 -d: /etc/passwd); do
-    if [ "$user" != "$CURRENT_USER" ]; then
-        echo "Enforcing policies for user: $user"
-        chage -m 1 -M 90 -I -1 -m 7 -E -1 "$user"  # Enforce minimum and maximum password age
-    fi
-done
-
-echo "Password policies enforced successfully for all users except '$CURRENT_USER'."
-
 # Audit security logs
 echo "Setting up log auditing with auditd..."
 apt install -y auditd
