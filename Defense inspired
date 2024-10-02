@@ -1,0 +1,90 @@
+#!/bin/bash
+# Ensure the script is being run as root
+if [ "$EUID" -ne 0 ]; then
+    echo "Please run as root"
+    exit
+fi
+
+# System Updates & Patching
+echo "Updating system packages..."
+yum update -y && yum upgrade -y
+
+# Account & Password Security
+echo "Setting password policies..."
+cat >> /etc/login.defs <<EOL
+PASS_MIN_LEN 14
+PASS_MAX_DAYS 60
+PASS_WARN_AGE 7
+EOL
+
+# Disable root login over SSH
+echo "Disabling root login over SSH..."
+sed -i 's/^PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+systemctl restart sshd
+
+# File Permissions and Auditing
+echo "Setting file permissions..."
+chmod 644 /etc/passwd
+chmod 600 /etc/shadow
+
+# Install and configure audit daemon
+echo "Installing and configuring auditd..."
+yum install audit -y
+systemctl enable auditd
+systemctl start auditd
+
+# Audit rules for sensitive files
+cat >> /etc/audit/rules.d/audit.rules <<EOL
+-w /etc/passwd -p wa -k passwd_changes
+-w /etc/shadow -p wa -k shadow_changes
+-w /etc/group -p wa -k group_changes
+-w /etc/gshadow -p wa -k gshadow_changes
+EOL
+
+# Reload auditd rules
+service auditd restart
+
+# Disable unnecessary services
+echo "Disabling unnecessary services..."
+for service in telnet vsftpd httpd; do
+    systemctl stop $service
+    systemctl disable $service
+done
+
+# Firewall Configuration
+echo "Configuring firewall..."
+firewall-cmd --permanent --add-service=ssh
+firewall-cmd --permanent --set-target=DROP
+firewall-cmd --reload
+
+# Ensure no empty passwords
+echo "Ensuring no empty passwords..."
+passwd -l root
+awk -F: '($2 == "") { print $1 }' /etc/shadow | while read user; do
+    passwd -l "$user"
+done
+
+# Secure SSH configuration
+echo "Securing SSH configuration..."
+cat >> /etc/ssh/sshd_config <<EOL
+# Security settings
+PermitEmptyPasswords no
+MaxAuthTries 3
+ClientAliveInterval 300
+ClientAliveCountMax 0
+EOL
+systemctl restart sshd
+
+# Logging and Monitoring
+echo "Configuring logging..."
+cat >> /etc/rsyslog.conf <<EOL
+# Log all attempts to use a non-existing user account
+auth,authpriv.*     /var/log/auth.log
+EOL
+systemctl restart rsyslog
+
+# Clean up
+echo "Cleaning up temporary files..."
+rm -rf /tmp/*
+
+echo "System hardening completed successfully!"
