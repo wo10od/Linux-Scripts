@@ -10,28 +10,4 @@ fi
 #pin Terminal
 gsettings set org.gnome.shell favorite-apps "['org.gnome.Terminal.desktop', 'other-apps.desktop']"
 
-#!/bin/bash
 
-declare -a software=("LogWatch" "Nmap" "rkhunter" "Tiger")
-
-for app in "${software[@]}"; do
-    read -p "Do you want to install $app? (y/n): " answer
-    if [[ "$answer" == "y" || "$answer" == "Y" ]]; then
-        case $app in
-            "LogWatch")
-                sudo apt install logwatch
-                ;;
-            "Nmap")
-                sudo apt install nmap
-                ;;
-            "rkhunter")
-                sudo apt install rkhunter
-                ;;
-            "Tiger")
-                sudo apt install tiger
-                ;;
-        esac
-    else
-        echo "Skipping $app installation."
-    fi
-done
