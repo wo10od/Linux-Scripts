@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# Prompt for script name
+read -p "Enter the name of the script (without extension): " script_name
+
+# Create the script file
+touch "${script_name}.sh"
+
+# Open the file in an editor
+nano "${script_name}.sh"
+
+# Make the script executable
+chmod +x "${script_name}.sh"
+
+# Run the script
+./"${script_name}.sh"
