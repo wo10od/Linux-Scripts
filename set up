@@ -1,0 +1,11 @@
+echo running set up
+
+# Check if the script is being run as root
+if [ "$(id -u)" != "0" ]; then
+   echo "This script must be run as root."
+   exit 1
+fi
+
+#pin Terminal
+gsettings set org.gnome.shell favorite-apps "['org.gnome.Terminal.desktop', 'other-apps.desktop']"
+
