@@ -60,9 +60,7 @@ apt autoremove -y
 echo "Disabling unused services..."
 systemctl disable cups-browsed.service
 
-#passwords
->/etc/shadow
->/etc/passwd
+
 
 # Audit security logs
 echo "Setting up log auditing with auditd..."
