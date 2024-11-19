@@ -1,1 +1,64 @@
+#!/bin/bash
 #this file is used to edit config files on linux 
+#shh 
+
+# Backup the existing SSH configuration
+cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+
+# Overwrite sshd_config with a hardened configuration
+cat <<EOF > /etc/ssh/sshd_config
+# Basic settings
+Port 22                # Change this to a non-standard port (e.g., 2222) for security through obscurity
+Protocol 2             # Enforces SSH version 2 for better security
+AddressFamily inet     # Restrict to IPv4 (use 'any' for both IPv4 and IPv6)
+
+# Key authentication
+PermitRootLogin no     # Disable root login over SSH
+PasswordAuthentication no  # Disable password-based authentication
+PubkeyAuthentication yes   # Use key-based authentication only
+AuthorizedKeysFile .ssh/authorized_keys  # Location of authorized keys
+
+# Security options
+PermitEmptyPasswords no   # Disallow empty passwords
+MaxAuthTries 3            # Limit authentication attempts to prevent brute-force attacks
+LoginGraceTime 1m         # Time allowed for successful authentication
+AllowTcpForwarding no     # Disable TCP forwarding unless required
+X11Forwarding no          # Disable X11 forwarding
+UseDNS no                 # Speed up connections by skipping DNS lookups
+Compression no            # Avoid compression to reduce attack surface
+
+# Logging and monitoring
+LogLevel VERBOSE          # Use verbose logging for troubleshooting
+SyslogFacility AUTHPRIV   # Logs SSH messages to authpriv facility
+MaxStartups 10:30:60      # Throttles unauthenticated connections: 10 allowed, then 30% chance of refusal up to 60
+
+
+# Key exchange and ciphers
+KexAlgorithms curve25519-sha256@libssh.org,diffie-hellman-group-exchange-sha256
+Ciphers aes256-ctr,aes192-ctr,aes128-ctr
+MACs hmac-sha2-512,hmac-sha2-256
+
+# Idle session timeout
+ClientAliveInterval 300   # Sends a keepalive message every 300 seconds
+ClientAliveCountMax 0     # Disconnects client if no response
+
+# Additional hardening
+PermitUserEnvironment no  # Prevents users from changing environment variables
+AllowAgentForwarding no   # Prevent agent forwarding
+HostbasedAuthentication no # Disallow host-based authentication
+ChallengeResponseAuthentication no # Disable challenge-response authentication
+EOF
+
+# Test the SSH configuration
+if sshd -t; then
+    echo "SSHD configuration test passed. Restarting sshd..."
+    systemctl restart sshd
+    echo "SSHD restarted successfully."
+else
+    echo "SSHD configuration test failed. Restoring the original configuration..."
+    cp /etc/ssh/sshd_config.bak /etc/ssh/sshd_config
+    systemctl restart sshd
+    exit 1
+fi
+
+echo copy at /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
