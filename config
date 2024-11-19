@@ -61,4 +61,45 @@ else
     exit 1
 fi
 
+# Variables
+HOST_CONF="/etc/host.conf"
+BACKUP_CONF="/etc/host.conf.bak"
+
+echo "Starting configuration of /etc/host.conf..."
+
+# Step 1: Backup the existing file
+if [[ -f $HOST_CONF ]]; then
+    echo "Backing up existing host.conf to $BACKUP_CONF..."
+    cp $HOST_CONF $BACKUP_CONF
+    if [[ $? -eq 0 ]]; then
+        echo "Backup successful."
+    else
+        echo "Failed to back up the existing configuration. Exiting."
+        exit 1
+    fi
+else
+    echo "No existing host.conf file found. Proceeding to create a new one."
+fi
+
+# Step 2: Apply the new configuration
+echo "Writing new configuration to $HOST_CONF..."
+cat <<EOF > $HOST_CONF
+order bind,hosts
+nospoof on
+EOF
+
+if [[ $? -eq 0 ]]; then
+    echo "New configuration applied successfully."
+else
+    echo "Failed to write the new configuration. Exiting."
+    exit 1
+fi
+
+# Step 3: Verify the new configuration
+echo "Verification: Current contents of $HOST_CONF:"
+cat $HOST_CONF
+
+# Completion message
+echo "Configuration process completed successfully!"
+
 echo copy at /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
