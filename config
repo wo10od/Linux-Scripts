@@ -102,4 +102,38 @@ cat $HOST_CONF
 # Completion message
 echo "Configuration process completed successfully!"
 
+# Define files and their correct permissions
+declare -A file_permissions=(
+    ["/etc/shadow"]="600"
+    ["/etc/passwd"]="644"
+    ["/etc/group"]="644"
+    ["/etc/gshadow"]="600"
+)
+
+echo "Checking and fixing file permissions..."
+
+# Iterate over the files and apply correct permissions
+for file in "${!file_permissions[@]}"; do
+    if [[ -e $file ]]; then
+        correct_perm="${file_permissions[$file]}"
+        current_perm=$(stat -c "%a" "$file")
+        
+        if [[ $current_perm != $correct_perm ]]; then
+            echo "Fixing permissions for $file: Current=$current_perm, Expected=$correct_perm"
+            chmod "$correct_perm" "$file"
+            if [[ $? -eq 0 ]]; then
+                echo "Permissions for $file set to $correct_perm successfully."
+            else
+                echo "Failed to set permissions for $file."
+            fi
+        else
+            echo "Permissions for $file are already correct ($current_perm)."
+        fi
+    else
+        echo "File $file does not exist. Skipping."
+    fi
+done
+
+echo "File permission check and fix completed."
+
 echo copy at /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
