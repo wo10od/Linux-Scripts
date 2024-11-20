@@ -1,6 +1,11 @@
 #!/bin/bash
 #this file is used to edit config files on linux 
-#shh 
+
+# Verify the user is running the script as root
+if [ "$(id -u)" -ne 0 ]; then
+    echo "Please run this script as root or with sudo."
+    exit 1
+fi
 
 # Backup the existing SSH configuration
 cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
@@ -137,3 +142,63 @@ done
 echo "File permission check and fix completed."
 
 echo copy at /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+# Backup the existing sysctl.conf
+cp /etc/sysctl.conf /etc/sysctl.conf.bak
+echo "Backup of /etc/sysctl.conf created at /etc/sysctl.conf.bak."
+
+# Add or update the required settings in /etc/sysctl.conf
+cat <<EOL >> /etc/sysctl.conf
+
+# Protect against spoofing
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+
+# Disable source packet routing
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv6.conf.all.accept_source_route = 0
+net.ipv4.conf.default.accept_source_route = 0
+net.ipv6.conf.default.accept_source_route = 0
+
+# Ignore send redirects
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.default.send_redirects = 0
+
+# Block SYN attacks
+net.ipv4.tcp_syncookies = 1
+net.ipv4.tcp_max_syn_backlog = 2048
+net.ipv4.tcp_synack_retries = 2
+net.ipv4.tcp_syn_retries = 5
+
+# Log Martians
+net.ipv4.conf.all.log_martians = 1
+net.ipv4.icmp_ignore_bogus_error_responses = 1
+
+# Ignore ICMP redirects
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv6.conf.default.accept_redirects = 0
+
+# Ignore Directed Pings
+net.ipv4.icmp_echo_ignore_all = 1
+
+# Disable IPv6
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+net.ipv6.conf.lo.disable_ipv6 = 1
+
+EOL
+
+echo "Settings applied to /etc/sysctl.conf."
+
+# Reload sysctl configuration
+sysctl -p
+
+# Verify IPv6 is disabled
+if [ "$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6)" -eq 1 ]; then
+    echo "IPv6 has been successfully disabled."
+else
+    echo "Failed to disable IPv6. Please check the settings."
+fi
+
