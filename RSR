@@ -35,7 +35,7 @@ echo give name of software to be removed
 read softname
 sudo apt-get remove --purge $softname
 sudo apt-get remove $softname
-
+sudo apt-get remove gnome-$softname
 echo do you want to remove more software? Y/N
 read YN
 if [ "$YN" = "y" ]; then 
