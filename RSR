@@ -20,5 +20,19 @@ if [ "$YN" = "y" ]; then
 exit
 fi
 
+#function 
+uname() { for software not in the script
+echo give name of software to be removed
+read softname
+sudo apt-get remove --purge $softname
+sudo apt-get remove $softname
+
+echo do you want to remove more software? Y/N
+read YN
+if [ "$YN" = "y" ]; then 
+uname
+exit
+fi
+}
 sudo apt-get autoremove
 sudo apt --purge autoremove
