@@ -11,7 +11,7 @@ echo read read me
 echo do you want to remove wire shark? Y/N
 read YN
 
-if [ "$YN" = "y"]; then 
+if [ "$YN" = "y" ]; then 
   echo removing wire shark
 exit
 fi
