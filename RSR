@@ -15,6 +15,7 @@ read YN
 if [ "$YN" = "y" ]; then 
   echo removing wire shark
    sudo apt-get remove --purge wireshark
+   sudo apt-get remove wireshark
 exit
 fi
 
