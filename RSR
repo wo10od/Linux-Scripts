@@ -1,5 +1,5 @@
 #!/bin/bash
-# RAM stands for RAM Software Remover
+# RSR stands for RSR Software Remover
 # Ensure the script is being run as root
 
 if [ "$(id -u)" != "0" ]; then
