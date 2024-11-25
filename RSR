@@ -7,11 +7,15 @@ if [ "$(id -u)" != "0" ]; then
    exit 1
 fi
 echo read read me 
+
 # wire shark 
 echo do you want to remove wire shark? Y/N
 read YN
 
 if [ "$YN" = "y" ]; then 
   echo removing wire shark
+   sudo apt-get remove --purge wireshark
 exit
 fi
+
+sudo apt-get autoremove
