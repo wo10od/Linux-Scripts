@@ -40,7 +40,6 @@ echo do you want to remove more software? Y/N
 read YN
 if [ "$YN" = "y" ]; then 
 uname
-exit
 fi
 }
 
