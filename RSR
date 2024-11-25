@@ -17,7 +17,6 @@ if [ "$YN" = "y" ]; then
    sudo apt-get remove --purge wireshark
    sudo apt-get remove wireshark
    sudo apt purge wireshark-qt wireshark-gtk
-exit
 fi
 
 # apache2
@@ -27,7 +26,6 @@ read YN
 if [ "$YN" = "y" ]; then 
   echo removing apache2
    sudo apt remove apache2*
-exit
 fi
 
 
@@ -50,3 +48,4 @@ uname
 
 sudo apt-get autoremove
 sudo apt --purge autoremove
+exit
