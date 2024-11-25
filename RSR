@@ -20,8 +20,8 @@ if [ "$YN" = "y" ]; then
 exit
 fi
 
-#function 
-uname() { for software not in the script
+#function  for software not in the script
+uname() { 
 echo give name of software to be removed
 read softname
 sudo apt-get remove --purge $softname
