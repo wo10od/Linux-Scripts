@@ -20,6 +20,17 @@ if [ "$YN" = "y" ]; then
 exit
 fi
 
+# apache2
+echo do you want to remove apache2 ? Y/N
+read YN
+
+if [ "$YN" = "y" ]; then 
+  echo removing apache2
+   sudo apt remove apache2*
+exit
+fi
+
+
 #function  for software not in the script
 uname() { 
 echo give name of software to be removed
