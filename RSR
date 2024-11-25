@@ -34,5 +34,8 @@ uname
 exit
 fi
 }
+
+uname
+
 sudo apt-get autoremove
 sudo apt --purge autoremove
