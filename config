@@ -90,7 +90,7 @@ fi
 echo "Writing new configuration to $HOST_CONF..."
 cat <<EOF > $HOST_CONF
 order bind,hosts
-nospoof on
+#nospoof on   #this line does weird stuff
 EOF
 
 if [[ $? -eq 0 ]]; then
