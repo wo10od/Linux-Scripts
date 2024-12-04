@@ -1,0 +1,43 @@
+#!/bin/bash
+#GUMS= GUMS ultiminte Moulder script
+# Ensure the script is being run as root
+
+if [ "$(id -u)" != "0" ]; then
+   echo "This script must be run as root."
+   exit 1
+fi
+
+# config
+echo do you want to run config? Y/N
+read YN
+
+if [ "$YN" = "y" ]; then 
+  echo running config 
+   sudo wget https://raw.githubusercontent.com/wo10od/Linux-Scripts/main/config -O /root/config;
+  sudo chmod +x /root/config;
+  sudo /root/config
+fi
+
+# gen1
+echo do you want to run gen1? Y/N
+read YN
+
+if [ "$YN" = "y" ]; then 
+  echo running gen1 
+  sudo wgethttps://raw.githubusercontent.com/wo10od/Linux-Scripts/main/users -O /root/genonesecure; \
+sudo chmod +x /root/genonesecure; \
+sudo /root/genonesecure
+
+fi
+
+
+# users
+echo do you want to run users? Y/N
+read YN
+
+if [ "$YN" = "y" ]; then 
+  echo running users 
+   sudo wget https://raw.githubusercontent.com/wo10od/Linux-Scripts/main/users -O /root/users; \
+sudo chmod +x /root/users; \
+sudo /root/users
+fi
