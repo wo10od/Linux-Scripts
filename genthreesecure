@@ -1,0 +1,505 @@
+#!/usr/bin/env bash
+#
+# combined_hardening.sh
+# Combined CIS/STIG-style + CyberPatriot-focused Linux hardening script.
+# - Conservative, idempotent where practical
+# - DOES NOT manage users (no create/modify/delete)
+# - Makes backups of files it edits to <file>.bak.<timestamp>
+#
+# Usage:
+#   sudo bash combined_hardening.sh 2>&1 | tee /var/log/combined_hardening_$(date +%F_%T).log
+#
+# WARNING:
+#  - Test on a VM first. Some changes may require manual tuning for your environment.
+#  - The script will restart sshd and other services where noted. If you're on remote SSH, be careful.
+#  - Inspect backups with suffix .bak.<ts> in same directory as original file.
+#
+set -euo pipefail
+TS="$(date +%s)"
+BAK_SUFFIX=".bak.$TS"
+LOG_PREFIX="[hardening]"
+LOG="/var/log/combined_hardening_$TS.log"
+exec > >(tee -a "$LOG") 2>&1
+
+echo "${LOG_PREFIX} Starting combined hardening run: $(date -u)"
+
+# -------------------------
+# Helpers
+# -------------------------
+backup() {
+  local f="$1"
+  if [ -e "$f" ]; then
+    cp -a "$f" "${f}${BAK_SUFFIX}"
+    echo "${LOG_PREFIX} backed up $f -> ${f}${BAK_SUFFIX}"
+  fi
+}
+
+detect_distro() {
+  if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    case "$ID" in
+      ubuntu|debian|linuxmint) echo "debian"; return;;
+      rhel|centos|rocky|almalinux|fedora) echo "rhel"; return;;
+      *) 
+        if [[ "${ID_LIKE:-}" =~ debian ]]; then echo "debian"; return; fi
+        if [[ "${ID_LIKE:-}" =~ rhel|fedora ]]; then echo "rhel"; return; fi
+        echo "unknown"; return
+        ;;
+    esac
+  else
+    echo "unknown"
+  fi
+}
+
+run_if_present() {
+  # run command if executable present
+  command -v "$1" >/dev/null 2>&1 && shift && "$@" || true
+}
+
+DISTRO_FAMILY="$(detect_distro)"
+echo "${LOG_PREFIX} Detected distro family: $DISTRO_FAMILY"
+
+# -------------------------
+# 1) Package install & system update
+# -------------------------
+install_baseline_packages() {
+  echo "${LOG_PREFIX} Installing/updating baseline packages..."
+  if [ "$DISTRO_FAMILY" = "debian" ]; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -y
+    apt-get install -y --no-install-recommends \
+      unattended-upgrades apt-listchanges apt-transport-https ca-certificates \
+      fail2ban auditd unzip vim ufw dos2unix coreutils jq wget curl
+    # basic cleanup
+    apt-get upgrade -y || true
+  elif [ "$DISTRO_FAMILY" = "rhel" ]; then
+    if command -v dnf >/dev/null 2>&1; then
+      dnf makecache
+      dnf install -y audit unzip vim fail2ban policycoreutils-python-utils policycoreutils python3-jq wget curl
+      dnf update -y || true
+    else
+      yum makecache
+      yum install -y audit unzip vim fail2ban policycoreutils policycoreutils-python-utils wget curl
+      yum update -y || true
+    fi
+  else
+    echo "${LOG_PREFIX} Unknown distro; skipping package install. Please install auditd/fail2ban/ufw/unattended-upgrades manually."
+  fi
+}
+
+# -------------------------
+# 2) Enable unattended upgrades / automatic updates (Debian family)
+# -------------------------
+enable_unattended_upgrades() {
+  if [ "$DISTRO_FAMILY" = "debian" ]; then
+    echo "${LOG_PREFIX} Enabling unattended-upgrades..."
+    backup /etc/apt/apt.conf.d/50unattended-upgrades || true
+    cat >/etc/apt/apt.conf.d/50unattended-upgrades <<'EOF'
+Unattended-Upgrade::Allowed-Origins {
+  "${distro_id}:${distro_codename}-security";
+};
+Unattended-Upgrade::Automatic-Reboot "false";
+Unattended-Upgrade::Mail "root";
+EOF
+    backup /etc/apt/apt.conf.d/20auto-upgrades || true
+    cat >/etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+EOF
+    dpkg-reconfigure -f noninteractive unattended-upgrades || true
+    echo "${LOG_PREFIX} unattended-upgrades configured"
+  else
+    echo "${LOG_PREFIX} Skipping unattended-upgrades (not Debian family)"
+  fi
+}
+
+# -------------------------
+# 3) Firewall configuration
+# -------------------------
+configure_firewall() {
+  echo "${LOG_PREFIX} Configuring firewall..."
+  if command -v ufw >/dev/null 2>&1; then
+    ufw --force reset
+    ufw default deny incoming
+    ufw default allow outgoing
+    # allow ssh (22) conservative
+    ufw allow OpenSSH || ufw allow 22/tcp
+    ufw --force enable
+    echo "${LOG_PREFIX} ufw set: deny incoming, allow outgoing, ssh allowed"
+  else
+    echo "${LOG_PREFIX} ufw not present — applying conservative iptables rules (not persisted)"
+    iptables -F || true
+    iptables -P INPUT DROP || true
+    iptables -P FORWARD DROP || true
+    iptables -P OUTPUT ACCEPT || true
+    iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT || true
+    iptables -A INPUT -i lo -j ACCEPT || true
+    iptables -A INPUT -p tcp --dport 22 -m conntrack --ctstate NEW -j ACCEPT || true
+    echo "${LOG_PREFIX} Basic iptables rules applied; persist manually if desired"
+  fi
+}
+
+# -------------------------
+# 4) SSH hardening
+# -------------------------
+harden_ssh() {
+  if [ ! -f /etc/ssh/sshd_config ]; then
+    echo "${LOG_PREFIX} /etc/ssh/sshd_config not found; skipping SSH hardening"
+    return
+  fi
+  local f=/etc/ssh/sshd_config
+  backup "$f"
+  # conservative changes
+  sed -ri 's/^\s*#?\s*Protocol\s+.*/Protocol 2/' "$f" || echo "Protocol 2" >> "$f"
+  sed -ri 's/^\s*#?\s*PermitRootLogin\s+.*/PermitRootLogin no/' "$f" || echo "PermitRootLogin no" >> "$f"
+  sed -ri 's/^\s*#?\s*PermitEmptyPasswords\s+.*/PermitEmptyPasswords no/' "$f" || echo "PermitEmptyPasswords no" >> "$f"
+  sed -ri 's/^\s*#?\s*X11Forwarding\s+.*/X11Forwarding no/' "$f" || echo "X11Forwarding no" >> "$f"
+  # keep PasswordAuthentication as-is (safe default)
+  echo "${LOG_PREFIX} SSH conservative hardening applied"
+  # reload sshd safely
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl reload sshd || systemctl restart sshd || true
+  else
+    service ssh reload || service ssh restart || true
+  fi
+}
+
+# -------------------------
+# 5) Kernel / sysctl hardening
+# -------------------------
+apply_sysctl_hardening() {
+  local f=/etc/sysctl.d/99-hardening.conf
+  backup "$f" || true
+  cat >"$f" <<'EOF'
+# basic network hardening
+net.ipv4.ip_forward = 0
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.default.send_redirects = 0
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.default.accept_source_route = 0
+net.ipv4.tcp_syncookies = 1
+net.ipv4.conf.all.rp_filter = 1
+# IPv6 options left commented - enable if you do not need IPv6
+# net.ipv6.conf.all.disable_ipv6 = 1
+# net.ipv6.conf.default.disable_ipv6 = 1
+EOF
+  sysctl --system || true
+  echo "${LOG_PREFIX} sysctl hardening applied"
+}
+
+# -------------------------
+# 6) Mount options (suggestions/backups)
+# -------------------------
+apply_mount_options() {
+  echo "${LOG_PREFIX} Checking common tmp mounts for recommended mount options..."
+  backup /etc/fstab || true
+  # The script will not force mount edits to avoid breaking systems; it will add comments if missing.
+  for mp in /tmp /var/tmp /dev/shm; do
+    if mountpoint -q "$mp"; then
+      if ! grep -q "[[:space:]]${mp}[[:space:]]" /etc/fstab 2>/dev/null; then
+        echo "# Consider mounting ${mp} with nodev,nosuid,noexec in /etc/fstab for increased security" >> /etc/fstab
+        echo "${LOG_PREFIX} Suggestion added to /etc/fstab for $mp"
+      else
+        echo "${LOG_PREFIX} $mp present in /etc/fstab - review options manually"
+      fi
+    fi
+  done
+}
+
+# -------------------------
+# 7) Permissions & world-writable files
+# -------------------------
+fix_file_permissions() {
+  echo "${LOG_PREFIX} Fixing basic sensitive file permissions..."
+  backup /etc/passwd || true
+  backup /etc/shadow || true
+  backup /etc/gshadow || true
+  [ -f /etc/passwd ] && chmod 644 /etc/passwd || true
+  if [ -f /etc/shadow ]; then
+    # attempt strict perms, fallback if unsupported
+    chmod 000 /etc/shadow || chmod 400 /etc/shadow || true
+  fi
+  [ -f /etc/gshadow ] && (chmod 000 /etc/gshadow || chmod 400 /etc/gshadow) || true
+
+  # report world-writable files (do not auto-fix any beyond basic common sensitive locations)
+  local WWF="/var/tmp/world_writable_files_$TS.txt"
+  find / -xdev -type f -perm -0002 -print 2>/dev/null >"$WWF" || true
+  echo "${LOG_PREFIX} world-writable files listed in $WWF"
+}
+
+# -------------------------
+# 8) Auditd
+# -------------------------
+configure_auditd() {
+  echo "${LOG_PREFIX} Configuring auditd (basic rules)..."
+  if ! command -v auditctl >/dev/null 2>&1; then
+    echo "${LOG_PREFIX} auditctl not found; skipping auditd rules generation (install auditd first)"
+    return
+  fi
+  backup /etc/audit/audit.rules || true
+  cat >/etc/audit/audit.rules <<'EOF'
+## Basic audit rules - monitor key files
+-w /etc/passwd -p wa -k identity
+-w /etc/shadow -p wa -k identity
+-w /etc/group -p wa -k identity
+-w /etc/gshadow -p wa -k identity
+-w /etc/sudoers -p wa -k perm_mod
+-w /etc/ssh/sshd_config -p wa -k cfg_mod
+EOF
+  # enable/ restart service
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl enable --now auditd || true
+  else
+    service auditd restart || true
+  fi
+  echo "${LOG_PREFIX} auditd rules written (if auditctl present) and service enabled"
+}
+
+# -------------------------
+# 9) Fail2Ban configuration
+# -------------------------
+configure_fail2ban() {
+  if command -v fail2ban-client >/dev/null 2>&1; then
+    echo "${LOG_PREFIX} Configuring fail2ban"
+    backup /etc/fail2ban/jail.local || true
+    cat >/etc/fail2ban/jail.local <<'EOF'
+[DEFAULT]
+bantime = 3600
+findtime = 600
+maxretry = 5
+
+[sshd]
+enabled = true
+EOF
+    systemctl enable --now fail2ban || service fail2ban restart || true
+    echo "${LOG_PREFIX} fail2ban configured and started"
+  else
+    echo "${LOG_PREFIX} fail2ban not installed; skipping"
+  fi
+}
+
+# -------------------------
+# 10) PAM / password policies
+# -------------------------
+configure_pam() {
+  echo "${LOG_PREFIX} Configuring PAM/password complexity and lockout (conservative)"
+  if [ "$DISTRO_FAMILY" = "debian" ]; then
+    local file=/etc/pam.d/common-password
+    if [ -f "$file" ]; then
+      backup "$file"
+      if ! grep -q "pam_pwquality" "$file"; then
+        echo "password requisite pam_pwquality.so retry=3 minlen=12 difok=3" >> "$file"
+        echo "${LOG_PREFIX} Added pam_pwquality to $file (review settings)"
+      fi
+    fi
+    backup /etc/login.defs || true
+    if grep -q "^PASS_MAX_DAYS" /etc/login.defs; then
+      sed -ri 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS   90/' /etc/login.defs
+    else
+      echo "PASS_MAX_DAYS   90" >> /etc/login.defs
+    fi
+    if grep -q "^PASS_MIN_LEN" /etc/login.defs; then
+      sed -ri 's/^PASS_MIN_LEN.*/PASS_MIN_LEN    12/' /etc/login.defs
+    else
+      echo "PASS_MIN_LEN    12" >> /etc/login.defs
+    fi
+  elif [ "$DISTRO_FAMILY" = "rhel" ]; then
+    local file=/etc/pam.d/system-auth
+    if [ -f "$file" ]; then
+      backup "$file"
+      if ! grep -q "pam_pwquality" "$file"; then
+        echo "password    requisite     pam_pwquality.so try_first_pass local_users_only retry=3" >> "$file"
+        echo "${LOG_PREFIX} Added pam_pwquality to $file (review settings)"
+      fi
+    fi
+    # RHEL password aging via chage defaults usually handled per-user; leave global changes out to avoid user mgmt
+  else
+    echo "${LOG_PREFIX} Skipping PAM edits (unknown distro)"
+  fi
+}
+
+# -------------------------
+# 11) Disable unneeded services
+# -------------------------
+disable_unneeded_services() {
+  echo "${LOG_PREFIX} Attempting to disable common unnecessary services (if present)"
+  services=(telnet rsh rexec rlogin xinetd rpcbind avahi-daemon cups ftp)
+  for s in "${services[@]}"; do
+    if systemctl list-unit-files | grep -q "^${s}"; then
+      systemctl disable --now "$s" || true
+      echo "${LOG_PREFIX} attempted to disable $s"
+    fi
+  done
+}
+
+# -------------------------
+# 12) Remove or disable prohibited files & software (CyberPatriot style)
+# -------------------------
+remove_prohibited_files_and_software() {
+  echo "${LOG_PREFIX} Removing common prohibited files and software referenced by competition scoring rules..."
+  # Remove MP3s and other media (careful - this deletes)
+  echo "${LOG_PREFIX} Deleting mp3 files (recursive search) - this action is destructive"
+  find / -xdev -type f -iname "*.mp3" -print -delete 2>/dev/null || true
+
+  # Remove plaintext password files (pattern)
+  echo "${LOG_PREFIX} Deleting likely plaintext password files (names containing 'password' or 'pw' heuristics) - destructive; review logs"
+  find / -xdev -type f \( -iname "*password*" -o -iname "*passwd*" -o -iname "*pw*" \) -print -exec rm -f {} \; 2>/dev/null || true
+
+  # Prohibited software list (attempt to purge)
+  prohibited=(hydra ophcrack wireshark freeciv deluge ophcrack wireshark-cli ophcrack-cli)
+  if [ "$DISTRO_FAMILY" = "debian" ]; then
+    apt-get purge -y "${prohibited[@]}" || true
+    apt-get autoremove -y || true
+  elif [ "$DISTRO_FAMILY" = "rhel" ]; then
+    if command -v dnf >/dev/null 2>&1; then
+      dnf remove -y "${prohibited[@]}" || true
+    else
+      yum remove -y "${prohibited[@]}" || true
+    fi
+  else
+    echo "${LOG_PREFIX} Skipping package purge (unknown distro)"
+  fi
+
+  # Remove common attack/backdoor patterns (simple heuristics)
+  echo "${LOG_PREFIX} Searching for obvious backdoor scripts (names/patterns) and removing (heuristic)"
+  find / -xdev -type f \( -iname "*backdoor*" -o -iname "*reverse_shell*" -o -iname "*webshell*" \) -print -exec rm -f {} \; 2>/dev/null || true
+
+  echo "${LOG_PREFIX} Prohibited files/software removal attempted (check logs for what was removed)."
+}
+
+# -------------------------
+# 13) Browser & app update hints
+# -------------------------
+update_browsers_and_apps() {
+  echo "${LOG_PREFIX} Attempting to update common applications (Chrome/Chromium/GIMP) if present"
+  if [ "$DISTRO_FAMILY" = "debian" ]; then
+    # For Chromium/Chrome if installed via package manager
+    apt-get install --only-upgrade -y chromium-browser chromium gimp || true
+    # Chrome from Google repository needs repo configured; skipping explicit adds for safety
+  elif [ "$DISTRO_FAMILY" = "rhel" ]; then
+    if command -v dnf >/dev/null 2>&1; then
+      dnf upgrade -y chromium gimp || true
+    else
+      yum upgrade -y chromium gimp || true
+    fi
+  fi
+}
+
+# -------------------------
+# 14) Apache handling
+# -------------------------
+remove_or_disable_apache() {
+  if systemctl list-unit-files | grep -q "^apache2"; then
+    if systemctl is-active --quiet apache2; then
+      echo "${LOG_PREFIX} Stopping and removing apache2 (if present)"
+      if [ "$DISTRO_FAMILY" = "debian" ]; then
+        apt-get purge -y apache2 || true
+        apt-get autoremove -y || true
+      elif [ "$DISTRO_FAMILY" = "rhel" ]; then
+        if command -v dnf >/dev/null 2>&1; then
+          dnf remove -y httpd || true
+        else
+          yum remove -y httpd || true
+        fi
+      fi
+    fi
+  fi
+}
+
+# -------------------------
+# 15) Check for python backdoors and token files
+# -------------------------
+scan_for_python_backdoors_and_tokens() {
+  echo "${LOG_PREFIX} Scanning for likely python backdoor files and token/key files"
+  find / -xdev -type f -iname "*token*.txt" -o -iname "*token*.json" -o -iname "*secret*.txt" -o -iname "*.py" -print 2>/dev/null | while read -r f; do
+    # heuristic: look for 'import socket' + 'connect' or 'requests' + suspicious patterns
+    if sed -n '1,200p' "$f" 2>/dev/null | grep -E "import (socket|subprocess|pty|requests)" >/dev/null 2>&1; then
+      # Copy to /var/tmp for review and remove original (dangerous files)
+      cp -a "$f" "/var/tmp/for_review_$(basename "$f").$TS" 2>/dev/null || true
+      echo "${LOG_PREFIX} Found suspicious script: $f (copied to /var/tmp for_review_$(basename "$f").$TS) - removing original"
+      rm -f "$f" || true
+    fi
+  done
+}
+
+# -------------------------
+# 16) Misc security: umask, core dumps
+# -------------------------
+set_misc_security() {
+  echo "${LOG_PREFIX} Setting misc security defaults"
+  if [ -f /etc/login.defs ]; then
+    backup /etc/login.defs || true
+    if grep -q "^UMASK" /etc/login.defs; then
+      sed -ri 's/^UMASK\s+.*/UMASK\t027/' /etc/login.defs
+    else
+      echo "UMASK\t027" >> /etc/login.defs
+    fi
+  fi
+  if [ -f /etc/security/limits.conf ]; then
+    backup /etc/security/limits.conf || true
+    if ! grep -q "^\* hard core 0" /etc/security/limits.conf; then
+      echo "* hard core 0" >> /etc/security/limits.conf
+    fi
+  fi
+}
+
+# -------------------------
+# 17) Basic integrity: list SUID/SGID suspicious files (report only)
+# -------------------------
+report_suid_sgid() {
+  echo "${LOG_PREFIX} Reporting SUID/SGID files (for review)"
+  local out="/var/tmp/suid_sgid_report_$TS.txt"
+  find / -xdev \( -perm -4000 -o -perm -2000 \) -type f -print 2>/dev/null >"$out" || true
+  echo "${LOG_PREFIX} SUID/SGID report written to $out"
+}
+
+# -------------------------
+# 18) Final checks and summary
+# -------------------------
+final_summary() {
+  echo "${LOG_PREFIX} Hardening run finished at $(date -u)"
+  echo "${LOG_PREFIX} Please review these files for backups/reports:"
+  echo "  - Log file: $LOG"
+  echo "  - World-writable files: /var/tmp/world_writable_files_$TS.txt"
+  echo "  - SUID/SGID report: /var/tmp/suid_sgid_report_$TS.txt"
+  echo "  - Any edited config backups end with ${BAK_SUFFIX} in their original locations"
+  echo ""
+  echo "${LOG_PREFIX} Manual recommended checks:"
+  echo "  - Review /etc/fstab for mount options suggested and apply verified changes manually."
+  echo "  - Review /etc/ssh/sshd_config backup before reloading ssh on remote hosts."
+  echo "  - Inspect files removed by the prohibited-files cleanup; they may have been destructive (mp3s, password-like files)."
+  echo "  - Inspect /var/tmp/for_review_* for any suspicious scripts we quarantined."
+  echo ""
+  echo "${LOG_PREFIX} If you'd like, I can:"
+  echo "  - Make a non-destructive mode (reports only, no deletes),"
+  echo "  - Convert to Ansible playbook,"
+  echo "  - Add more CIS/STIG checks (e.g. kernel module blacklisting, apparmor/selinux enforcement)."
+}
+
+# -------------------------
+# Run everything (order matters)
+# -------------------------
+main() {
+  install_baseline_packages || echo "${LOG_PREFIX} package install may have had issues; continuing"
+  enable_unattended_upgrades || true
+  configure_firewall || true
+  harden_ssh || true
+  apply_sysctl_hardening || true
+  apply_mount_options || true
+  fix_file_permissions || true
+  configure_auditd || true
+  configure_fail2ban || true
+  configure_pam || true
+  disable_unneeded_services || true
+  remove_prohibited_files_and_software || true
+  update_browsers_and_apps || true
+  remove_or_disable_apache || true
+  scan_for_python_backdoors_and_tokens || true
+  set_misc_security || true
+  report_suid_sgid || true
+  final_summary
+}
+
+main "$@"
